@@ -157,16 +157,40 @@ export class SolanaProvider implements IBlockchainProvider {
       const logs = value['logs'] as string[] | undefined;
       const err = value['err'];
 
-      // Skip failed transactions
-      if (err !== null && err !== undefined) return;
-      if (!signature) return;
+      // Skip failed transactions with explicit structured log
+      if (err !== null && err !== undefined) {
+        logger.info({ signature, address, err }, 'SolanaProvider: skipping failed on-chain transaction');
+        return;
+      }
+      if (!signature) {
+        logger.warn({ address, slot: context?.slot }, 'SolanaProvider: received log notification with missing signature — skipping');
+        return;
+      }
 
-      logger.info({ address, signature, slot: context?.slot }, 'SolanaProvider: log notification received — fetching full tx');
+      // Deduplicate signatures to prevent duplicate processing
+      if (!this.markSignatureProcessed(signature)) {
+        logger.debug({ signature, address }, 'SolanaProvider: duplicate signature detected — skipping');
+        return;
+      }
 
-      // Fetch full transaction data from Helius RPC
-      this._fetchTransaction(signature)
-        .then(txData => {
-          if (!txData) return;
+      logger.info({ address, signature, slot: context?.slot }, 'SolanaProvider: log notification received — queuing resilient retrieval');
+
+      // Fetch transaction with exponential backoff retries
+      this._fetchTransactionWithRetry(signature, address)
+        .then(({ txData, retries, latencyMs, failureReason }) => {
+          if (!txData) {
+            logger.warn(
+              { signature, address, retries, latencyMs, failureReason },
+              'SolanaProvider: transaction dropped after retries exhausted'
+            );
+            return;
+          }
+
+          logger.info(
+            { signature, address, retries, latencyMs },
+            'SolanaProvider: transaction retrieved successfully — dispatching to handler'
+          );
+
           const event: RawTransactionEvent = {
             chainId: 'SOLANA_MAINNET',
             txHash: signature,
@@ -180,8 +204,10 @@ export class SolanaProvider implements IBlockchainProvider {
           return state.handler(event);
         })
         .catch(err => {
-          logger.error({ signature, err: err instanceof Error ? err.message : String(err) },
-            'SolanaProvider: error processing log notification');
+          logger.error(
+            { signature, address, err: err instanceof Error ? err.message : String(err) },
+            'SolanaProvider: error in transaction retrieval pipeline'
+          );
         });
     }
   }
@@ -374,28 +400,73 @@ export class SolanaProvider implements IBlockchainProvider {
     }
   }
 
-  private async _fetchTransaction(signature: string): Promise<Record<string, unknown> | null> {
-    try {
-      const res = await fetch(HELIUS_RPC_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0', id: 'tx',
-          method: 'getTransaction',
-          params: [signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }],
-        }),
-        signal: AbortSignal.timeout(10_000),
-      });
+  private processedSignatures = new Set<string>();
 
-      if (!res.ok) throw new Error(`getTransaction HTTP ${res.status}`);
-
-      const json = (await res.json()) as { result?: Record<string, unknown> };
-      return json?.result ?? null;
-    } catch (err) {
-      logger.warn({ signature, err: err instanceof Error ? err.message : String(err) },
-        'SolanaProvider: _fetchTransaction failed');
-      return null;
+  private markSignatureProcessed(signature: string): boolean {
+    if (this.processedSignatures.has(signature)) {
+      return false;
     }
+    this.processedSignatures.add(signature);
+    if (this.processedSignatures.size > 10_000) {
+      const first = this.processedSignatures.values().next().value;
+      if (first) this.processedSignatures.delete(first);
+    }
+    return true;
+  }
+
+  private async _fetchTransactionWithRetry(
+    signature: string,
+    address: string
+  ): Promise<{ txData: Record<string, unknown> | null; retries: number; latencyMs: number; failureReason?: string }> {
+    const startTime = Date.now();
+    const delaysMs = [500, 1000, 2000, 4000, 8000, 16000];
+    const maxTimeoutMs = 30_000;
+    let retries = 0;
+    let lastError = 'Transaction not found on-chain (null result)';
+
+    while (Date.now() - startTime < maxTimeoutMs) {
+      try {
+        const res = await fetch(HELIUS_RPC_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 'tx',
+            method: 'getTransaction',
+            params: [signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }],
+          }),
+          signal: AbortSignal.timeout(8000),
+        });
+
+        if (res.status === 429) {
+          lastError = 'Helius rate limit (429)';
+          logger.warn({ signature, address, retries }, 'SolanaProvider: rate limited on getTransaction — backing off');
+        } else if (!res.ok) {
+          lastError = `HTTP ${res.status}`;
+        } else {
+          const json = (await res.json()) as { result?: Record<string, unknown> };
+          if (json?.result) {
+            const latencyMs = Date.now() - startTime;
+            return { txData: json.result, retries, latencyMs };
+          }
+          lastError = 'getTransaction returned null (slot not indexed on RPC yet)';
+        }
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+      }
+
+      const delay = delaysMs[Math.min(retries, delaysMs.length - 1)];
+      const elapsed = Date.now() - startTime;
+      if (elapsed + delay! >= maxTimeoutMs) {
+        break;
+      }
+
+      retries++;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+
+    const totalLatencyMs = Date.now() - startTime;
+    return { txData: null, retries, latencyMs: totalLatencyMs, failureReason: lastError };
   }
 
   async healthCheck(): Promise<{ isHealthy: boolean; latencyMs: number; error?: string }> {
