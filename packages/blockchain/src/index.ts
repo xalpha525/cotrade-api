@@ -26,6 +26,7 @@ export * from './services/price.service.js';
 // Engines
 export * from './engine/position-engine.js';
 export * from './engine/stats-engine.js';
+export * from './engine/unified-analytics-processor.js';
 
 // Execution Engine
 export * from './execution/interfaces.js';

@@ -16,12 +16,15 @@ const USDC_SOL = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const WETH_EVM = '0xc02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
 const USDC_EVM = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 
+import { UnifiedTradeAnalyticsProcessor } from '../engine/unified-analytics-processor.js';
+
 export class TransactionPipeline {
   private readonly decoderRegistry = new DecoderRegistry();
   private readonly signalRepo = new SignalRepository(prisma);
   private readonly traderRepo = new TraderRepository(prisma);
   private readonly eventBus = new InMemoryEventBus();
   private readonly priceService = new PriceService();
+  private readonly analyticsProcessor = new UnifiedTradeAnalyticsProcessor();
 
   constructor() {
     this.decoderRegistry.register(new RaydiumDecoder());
@@ -89,7 +92,33 @@ export class TransactionPipeline {
       });
     }
 
-    // 3. Emit MASTER_TRADE_DETECTED domain event
+    // 3. Process trade through Unified Analytics Processor (PositionEngine -> StatisticsEngine)
+    const targetTokenAddress = side === 'BUY' ? swapData.tokenOutAddress : swapData.tokenInAddress;
+    const targetTokenSymbol = (swapData as any).tokenSymbol ?? (side === 'BUY' ? 'TOKEN_OUT' : 'TOKEN_IN');
+    const tradeAmount = side === 'BUY'
+      ? (parseFloat(swapData.amountOut) || 1)
+      : (parseFloat(swapData.amountIn) || 1);
+
+    try {
+      await this.analyticsProcessor.processTrade({
+        walletAddress: tx.walletAddress,
+        userId: trader?.id ?? undefined,
+        chainId: tx.chainId,
+        tokenAddress: targetTokenAddress,
+        tokenSymbol: targetTokenSymbol,
+        side,
+        amount: tradeAmount,
+        priceUsd: calculatedUsd > 0 ? calculatedUsd / tradeAmount : priceInUsd,
+        timestamp: Date.now(),
+      });
+    } catch (analyticsErr) {
+      logger.error(
+        { wallet: tx.walletAddress, err: analyticsErr instanceof Error ? analyticsErr.message : String(analyticsErr) },
+        'TransactionPipeline: Error updating analytics for master trader trade'
+      );
+    }
+
+    // 4. Emit MASTER_TRADE_DETECTED domain event
     const event: MasterTradeDetectedEvent = {
       eventId: `evt_${Math.random().toString(36).slice(2, 10)}`,
       eventType: 'MASTER_TRADE_DETECTED',

@@ -1,8 +1,6 @@
 import { Decimal, prisma } from '@copytrading/db';
 import { InMemoryEventBus } from '@copytrading/events';
 import { logger } from '@copytrading/logger';
-import { PositionEngine } from '../engine/position-engine.js';
-import { StatisticsEngine } from '../engine/stats-engine.js';
 import type {
   EvaluatedStrategyContext,
   CalculatedPositionSize,
@@ -11,13 +9,14 @@ import type {
   CompleteExecutionRecord,
 } from './interfaces.js';
 
+import { UnifiedTradeAnalyticsProcessor } from '../engine/unified-analytics-processor.js';
+
 export class ExecutionLogger {
-  private positionEngine = new PositionEngine();
-  private statsEngine = new StatisticsEngine();
+  private analyticsProcessor = new UnifiedTradeAnalyticsProcessor();
   private eventBus = new InMemoryEventBus();
 
   /**
-   * Records execution outcome in DB, updates Position & Stats engines, and emits WS notifications.
+   * Records execution outcome in DB, updates Position & Stats engines via unified analytics processor, and emits WS notifications.
    */
   async logExecutionOutcome(
     ctx: EvaluatedStrategyContext,
@@ -77,13 +76,13 @@ export class ExecutionLogger {
       }).catch(() => {});
     }
 
-    // 4. Update PositionEngine & StatisticsEngine on Success
+    // 4. Delegate Position & Statistics updates to Unified Analytics Processor on Success
     if (status === 'SUCCESS') {
       try {
-        const positionResult = await this.positionEngine.processTrade({
+        await this.analyticsProcessor.processTrade({
           walletId: ctx.destinationWalletId,
           userId: ctx.followerUserId,
-          address: ctx.destinationWalletAddress,
+          walletAddress: ctx.destinationWalletAddress,
           chainId: ctx.chainId,
           tokenAddress: ctx.tokenOutAddress,
           tokenSymbol: ctx.tokenSymbol,
@@ -92,16 +91,8 @@ export class ExecutionLogger {
           priceUsd: size.tokenPriceUsd || 1,
           timestamp: Date.now(),
         });
-
-        await this.statsEngine.updateStatsOnTrade({
-          walletAddress: ctx.destinationWalletAddress,
-          realizedPnLUsd: positionResult.realizedPnLUsd,
-          isWin: positionResult.realizedPnLUsd >= 0,
-          holdDurationSeconds: positionResult.holdDurationSeconds ?? 0,
-          portfolioValueUsd: size.tradeAmountUsd * 2,
-        });
       } catch (err) {
-        logger.error({ err }, 'ExecutionLogger: Error updating PositionEngine');
+        logger.error({ err }, 'ExecutionLogger: Error in UnifiedAnalyticsProcessor for copy trade');
       }
     }
 

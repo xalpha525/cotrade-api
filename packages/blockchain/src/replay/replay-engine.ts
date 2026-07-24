@@ -65,42 +65,23 @@ export class ReplayEngine {
       }
     }
 
-    // Upsert TraderStatistics in DB with calculated stats
-    const winRate = 76.2;
-    await prisma.traderStatistics.upsert({
+    // Fetch dynamically calculated statistics computed by UnifiedTradeAnalyticsProcessor
+    const calculatedStats = await prisma.traderStatistics.findUnique({
       where: { walletAddress: trader.walletAddress },
-      create: {
-        walletAddress: trader.walletAddress,
-        totalTrades: replayedCount,
-        winningTrades: Math.floor(replayedCount * 0.76),
-        losingTrades: Math.ceil(replayedCount * 0.24),
-        winRate,
-        currentPortfolioValue: 24500,
-        peakPortfolioValue: 35000,
-        maxDrawdownPercent: 12.5,
-        averageHoldDurationSec: 14400,
-      },
-      update: {
-        totalTrades: replayedCount,
-        winningTrades: Math.floor(replayedCount * 0.76),
-        losingTrades: Math.ceil(replayedCount * 0.24),
-        winRate,
-        currentPortfolioValue: 24500,
-        peakPortfolioValue: 35000,
-      },
     });
 
-    // Update Trader model winRate and totalRoiPercentage
+    const calculatedWinRate = calculatedStats?.winRate ?? 0;
+
+    // Sync Trader model with calculated winRate
     await prisma.trader.update({
       where: { id: traderId },
       data: {
-        winRate: new (await import('@copytrading/db')).Decimal(winRate),
-        totalRoiPercentage: new (await import('@copytrading/db')).Decimal(185.4),
+        winRate: new (await import('@copytrading/db')).Decimal(calculatedWinRate),
       },
     });
 
-    logger.info({ traderId, replayedCount, winRate }, 'ReplayEngine: Historical replay completed');
-    return { replayedCount, winRate };
+    logger.info({ traderId, replayedCount, winRate: calculatedWinRate }, 'ReplayEngine: Historical replay completed with dynamic analytics');
+    return { replayedCount, winRate: calculatedWinRate };
   }
 
   private async _fetchSolanaHistoricalSignatures(address: string): Promise<string[]> {
