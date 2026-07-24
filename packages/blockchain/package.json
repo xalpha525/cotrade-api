@@ -1,0 +1,26 @@
+{
+  "name": "@copytrading/blockchain",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/**/*.ts"
+  },
+  "dependencies": {
+    "@copytrading/db": "workspace:*",
+    "@copytrading/events": "workspace:*",
+    "@copytrading/logger": "workspace:*",
+    "@copytrading/queue": "workspace:*",
+    "@copytrading/utils": "workspace:*",
+    "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.4.0"
+  }
+}

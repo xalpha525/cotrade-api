@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "CopyTrading",
+    "slug": "copytrading",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "copytrading",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0A0F"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "jsEngine": "jsc",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.copytrading.app",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Used for biometric authentication"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0A0A0F"
+      },
+      "package": "com.crypto.cabal",
+      "permissions": ["android.permission.VIBRATE", "android.permission.USE_BIOMETRIC"]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "backgroundColor": "#0A0A0F",
+          "resizeMode": "contain"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "apiUrl": "https://cotrade-api-production.up.railway.app",
+      "eas": {
+        "projectId": "copytrading-app"
+      }
+    },
+    "newArchEnabled": true
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": [".env", ".env.local"],
+  "globalEnv": [
+    "NODE_ENV",
+    "APP_ENV",
+    "PORT",
+    "API_URL",
+    "JWT_SECRET",
+    "MASTER_ENCRYPTION_KEY",
+    "DATABASE_URL",
+    "DIRECT_DATABASE_URL",
+    "UPSTASH_REDIS_REST_URL",
+    "UPSTASH_REDIS_REST_TOKEN",
+    "HELIUS_API_KEY",
+    "HELIUS_RPC_URL",
+    "HELIUS_WS_URL",
+    "ROBINHOOD_API_KEY",
+    "ROBINHOOD_RPC_URL",
+    "ROBINHOOD_WS_URL",
+    "PRIVY_APP_ID",
+    "PRIVY_APP_SECRET"
+  ],
+  "pipeline": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "build/**", ".next/**"]
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "clean": {
+      "cache": false
+    }
+  }
+}

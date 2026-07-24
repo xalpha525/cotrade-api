@@ -1,0 +1,878 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum UserRole {
+  ADMIN
+  TRADER
+  FOLLOWER
+}
+
+enum ChainId {
+  SOLANA_MAINNET
+  ROBINHOOD_MAINNET
+}
+
+enum TraderStatus {
+  ACTIVE
+  PAUSED
+  SUSPENDED
+  ARCHIVED
+}
+
+enum TraderLifecycleState {
+  DISCOVERED
+  TRACKING
+  SUGGESTED
+  COPIED
+  POPULAR
+  ARCHIVED
+}
+
+enum TrackingTier {
+  PASSIVE
+  ACTIVE
+}
+
+enum FollowerStatus {
+  ACTIVE
+  PAUSED
+  TERMINATED
+}
+
+enum TradeSide {
+  BUY
+  SELL
+}
+
+enum ExecutionStatus {
+  PENDING
+  SUBMITTED
+  CONFIRMED
+  FAILED
+  CANCELLED
+}
+
+enum TransactionType {
+  TRADE
+  DEPOSIT
+  WITHDRAWAL
+  FEE
+}
+
+enum NotificationType {
+  TRADE_EXECUTED
+  RISK_ALERT
+  SYSTEM
+  SECURITY
+}
+
+enum DeviceType {
+  IOS
+  ANDROID
+  WEB
+}
+
+enum SignalStatus {
+  RECEIVED
+  PARSED
+  DISPATCHED
+  IGNORED
+  FAILED
+}
+
+enum JobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  RETRYING
+}
+
+enum MarketEventType {
+  HIGH_VOLATILITY
+  LIQUIDITY_DROP
+  LARGE_WHALE_TRADE
+  TOKEN_LAUNCH
+}
+
+enum DiscoveryMethod {
+  MANUAL_IMPORT
+  LEADERBOARD
+  ON_CHAIN_ANALYSIS
+  SOCIAL_VIRAL
+}
+
+enum PriceInterval {
+  M1
+  M5
+  M15
+  H1
+  H4
+  D1
+}
+
+// ==========================================
+// MODELS
+// ==========================================
+
+model User {
+  id               String              @id @default(uuid())
+  privyId          String              @unique
+  email            String?             @unique
+  role             UserRole            @default(FOLLOWER)
+  createdBy        String?
+  updatedBy        String?
+  deletedBy        String?
+  deletionReason   String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  deletedAt        DateTime?
+
+  profile          UserProfile?
+  sessions         Session[]
+  wallets          Wallet[]
+  linkedWallets    LinkedWallet[]
+  followers        Follower[]
+  positions        Position[]
+  snapshots        PortfolioSnapshot[]
+  transactions     Transaction[]
+  notifications    Notification[]
+  devices          Device[]
+  apiKeys          ApiKey[]
+  auditLogs        AuditLog[]
+  webhooks         Webhook[]
+  tradeExecutions  TradeExecution[]
+  riskProfiles     RiskProfile[]
+
+  @@index([privyId])
+  @@index([email])
+  @@index([deletedAt])
+}
+
+model UserProfile {
+  id              String    @id @default(uuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName     String?
+  avatarUrl       String?
+  bio             String?
+  timezone        String    @default("UTC")
+  preferencesJson Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model Session {
+  id             String    @id @default(uuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  privySessionId String    @unique
+  ipAddress      String?
+  userAgent      String?
+  expiresAt      DateTime
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Wallet {
+  id             String    @id @default(uuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address        String
+  chainId        ChainId
+  isPrimary      Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+  walletBalance  WalletBalance?
+
+  @@unique([userId, address, chainId])
+  @@index([userId])
+  @@index([address, chainId])
+}
+
+model LinkedWallet {
+  id             String    @id @default(uuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address        String
+  chainId        ChainId
+  walletType     String    @default("EXTERNAL")
+  verifiedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([userId, address, chainId])
+  @@index([userId])
+  @@index([address])
+}
+
+model Trader {
+  id                 String               @id @default(uuid())
+  displayName        String
+  bio                String?
+  walletAddress      String               @unique
+  chainId            ChainId
+  status             TraderStatus         @default(ACTIVE)
+  lifecycleState     TraderLifecycleState @default(DISCOVERED)
+  trackingTier       TrackingTier         @default(PASSIVE)
+  winRate            Decimal              @default(0.0) @db.Decimal(5, 2)
+  totalRoiPercentage Decimal              @default(0.0) @db.Decimal(10, 4)
+  followerCount      Int                  @default(0)
+  lastActiveAt       DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  deletedAt          DateTime?
+
+  followers          Follower[]
+  trades             Trade[]
+  observedTrades     ObservedTrade[]
+
+  @@index([walletAddress, chainId])
+  @@index([status])
+  @@index([lifecycleState])
+  @@index([trackingTier])
+}
+
+model Follower {
+  id                 String         @id @default(uuid())
+  userId             String
+  user               User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  traderId           String
+  trader             Trader         @relation(fields: [traderId], references: [id], onDelete: Cascade)
+  status             FollowerStatus @default(ACTIVE)
+  maxAllocationUsd   Decimal        @db.Decimal(28, 8)
+  isPaused           Boolean        @default(false)
+  version            Int            @default(1)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  deletedAt          DateTime?
+
+  copyStrategy       CopyStrategy?
+  strategyVersions   StrategyVersion[]
+  tradeExecutions    TradeExecution[]
+
+  @@unique([userId, traderId])
+  @@index([userId])
+  @@index([traderId])
+}
+
+model CopyStrategy {
+  id                   String   @id @default(uuid())
+  followerId           String   @unique
+  follower             Follower @relation(fields: [followerId], references: [id], onDelete: Cascade)
+  maxSlippageBps       Int      @default(100)
+  fixedAmountUsd       Decimal? @db.Decimal(28, 8)
+  percentageAllocation Decimal? @db.Decimal(5, 2)
+  stopLossPercentage   Decimal? @db.Decimal(5, 2)
+  takeProfitPercentage Decimal? @db.Decimal(5, 2)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([followerId])
+}
+
+model StrategyVersion {
+  id                   String     @id @default(uuid())
+  followerId           String
+  follower             Follower   @relation(fields: [followerId], references: [id], onDelete: Cascade)
+  versionNumber        Int
+  maxSlippageBps       Int        @default(100)
+  fixedAmountUsd       Decimal?   @db.Decimal(28, 8)
+  percentageAllocation Decimal?   @db.Decimal(5, 2)
+  stopLossPercentage   Decimal?   @db.Decimal(5, 2)
+  takeProfitPercentage Decimal?   @db.Decimal(5, 2)
+  createdAt            DateTime   @default(now())
+
+  tradeExecutions      TradeExecution[]
+
+  @@unique([followerId, versionNumber])
+  @@index([followerId])
+}
+
+model TradeSignal {
+  id               String       @id @default(uuid())
+  chainId          ChainId
+  txHash           String
+  blockNumber      BigInt
+  logIndex         Int?
+  instructionIndex Int?
+  walletAddress    String
+  dexId            String?
+  poolAddress      String?
+  tokenInAddress   String
+  tokenOutAddress  String
+  amountIn         Decimal      @db.Decimal(36, 18)
+  amountOut        Decimal      @db.Decimal(36, 18)
+  amountUsd        Decimal?     @db.Decimal(28, 8)
+  gasFee           Decimal?     @db.Decimal(28, 8)
+  priorityFee      Decimal?     @db.Decimal(28, 8)
+  parserVersion    String       @default("1.0.0")
+  observedAt       DateTime     @default(now())
+  rawJson          Json
+  decodedJson      Json?
+  metadataJson     Json?
+  status           SignalStatus @default(RECEIVED)
+
+  observedTrade    ObservedTrade?
+
+  @@index([txHash, chainId])
+  @@index([walletAddress])
+  @@index([observedAt])
+  @@index([status])
+}
+
+model ObservedTrade {
+  id             String      @id @default(uuid())
+  signalId       String      @unique
+  signal         TradeSignal @relation(fields: [signalId], references: [id], onDelete: Cascade)
+  traderId       String
+  trader         Trader      @relation(fields: [traderId], references: [id], onDelete: Cascade)
+  side           TradeSide
+  tokenInAddress String
+  tokenOutAddress String
+  amountIn       Decimal     @db.Decimal(36, 18)
+  amountOut      Decimal     @db.Decimal(36, 18)
+  amountUsd      Decimal     @db.Decimal(28, 8)
+  executedAt     DateTime    @default(now())
+  createdAt      DateTime    @default(now())
+
+  @@index([traderId])
+  @@index([executedAt])
+}
+
+model Trade {
+  id               String           @id @default(uuid())
+  traderId         String
+  trader           Trader           @relation(fields: [traderId], references: [id], onDelete: Cascade)
+  chainId          ChainId
+  txHash           String           @unique
+  tokenInAddress   String
+  tokenOutAddress  String
+  amountIn         Decimal          @db.Decimal(36, 18)
+  amountOut        Decimal          @db.Decimal(36, 18)
+  timestamp        DateTime         @default(now())
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  executions       TradeExecution[]
+
+  @@index([traderId])
+  @@index([txHash])
+  @@index([timestamp])
+}
+
+model TradeExecution {
+  id                 String           @id @default(uuid())
+  tradeId            String
+  trade              Trade            @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  followerUserId     String
+  user               User             @relation(fields: [followerUserId], references: [id], onDelete: Cascade)
+  followerId         String
+  follower           Follower         @relation(fields: [followerId], references: [id], onDelete: Cascade)
+  strategyVersionId  String?
+  strategyVersion    StrategyVersion? @relation(fields: [strategyVersionId], references: [id], onDelete: SetNull)
+  batchId            String?
+  batch              ExecutionBatch?  @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  status             ExecutionStatus  @default(PENDING)
+  txHash             String?          @unique
+  amountExecuted     Decimal?         @db.Decimal(36, 18)
+  executionPriceUsd  Decimal?         @db.Decimal(28, 8)
+  executionTimeMs    Int?
+  errorMessage       String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  failures           ExecutionFailure[]
+
+  @@index([tradeId])
+  @@index([followerUserId])
+  @@index([followerId])
+  @@index([status])
+}
+
+model ExecutionBatch {
+  id            String           @id @default(uuid())
+  batchCode     String           @unique
+  totalOrders   Int
+  status        ExecutionStatus  @default(PENDING)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  executions    TradeExecution[]
+
+  @@index([batchCode])
+}
+
+model ExecutionFailure {
+  id             String         @id @default(uuid())
+  executionId    String
+  execution      TradeExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  errorCode      String
+  errorMessage   String
+  stackTrace     String?
+  retryCount     Int            @default(0)
+  createdAt      DateTime       @default(now())
+
+  @@index([executionId])
+}
+
+enum PositionStatus {
+  OPEN
+  PARTIALLY_CLOSED
+  CLOSED
+}
+
+model WalletBalance {
+  id            String   @id @default(uuid())
+  walletId      String   @unique
+  nativeBalance String   @default("0")
+  balanceUsd    Float    @default(0)
+  updatedAt     DateTime @updatedAt
+  wallet        Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+}
+
+model Position {
+  id                   String         @id @default(uuid())
+  userId               String
+  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  walletId             String?
+  chainId              ChainId
+  tokenAddress         String
+  tokenSymbol          String
+  quantity             Decimal        @db.Decimal(36, 18)
+  averageEntryPriceUsd Decimal        @db.Decimal(28, 8)
+  averageExitPriceUsd  Decimal?       @db.Decimal(28, 8)
+  currentPriceUsd      Decimal        @db.Decimal(28, 8)
+  realizedPnlUsd       Decimal        @default(0) @db.Decimal(28, 8)
+  unrealizedPnlUsd     Decimal        @db.Decimal(28, 8)
+  totalCostUsd         Decimal        @default(0) @db.Decimal(28, 8)
+  totalRevenueUsd      Decimal        @default(0) @db.Decimal(28, 8)
+  roiPercent           Decimal        @default(0) @db.Decimal(10, 4)
+  holdDurationSeconds  Int?
+  status               PositionStatus @default(OPEN)
+  closedAt             DateTime?
+  version              Int            @default(1)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  deletedAt            DateTime?
+
+  lots                 PositionLot[]
+
+  @@unique([userId, chainId, tokenAddress])
+  @@index([userId])
+  @@index([walletId])
+  @@index([tokenAddress])
+  @@index([status])
+}
+
+model PositionLot {
+  id              String   @id @default(uuid())
+  positionId      String
+  position        Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  amount          Decimal  @db.Decimal(36, 18)
+  remainingAmount Decimal  @db.Decimal(36, 18)
+  entryPriceUsd   Decimal  @db.Decimal(28, 8)
+  createdAt       DateTime @default(now())
+
+  @@index([positionId])
+}
+
+model TraderStatistics {
+  id                     String   @id @default(uuid())
+  walletAddress          String   @unique
+  totalTrades            Int      @default(0)
+  winningTrades          Int      @default(0)
+  losingTrades           Int      @default(0)
+  winRate                Float    @default(0)
+  averageWinUsd          Float    @default(0)
+  averageLossUsd         Float    @default(0)
+  biggestWinUsd          Float    @default(0)
+  biggestLossUsd         Float    @default(0)
+  currentOpenPositions   Int      @default(0)
+  currentPortfolioValue   Float    @default(0)
+  peakPortfolioValue     Float    @default(0)
+  maxDrawdownPercent     Float    @default(0)
+  averageHoldDurationSec Int      @default(0)
+  updatedAt              DateTime @updatedAt
+
+  @@index([walletAddress])
+}
+
+model TokenMetadata {
+  id           String   @id @default(uuid())
+  tokenId      String?  @unique
+  token        Token?   @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  mintAddress  String   @unique
+  chainId      ChainId
+  symbol       String
+  name         String
+  decimals     Int
+  logoUrl      String?
+  coingeckoId  String?
+  websiteUrl   String?
+  twitterUrl   String?
+  isVerified   Boolean  @default(false)
+  marketCapUsd Float?
+  fdvUsd       Float?
+  liquidityUsd Float?
+  holderCount  Int?
+  updatedAt    DateTime @updatedAt
+
+  @@index([mintAddress, chainId])
+}
+
+model TrackedWallet {
+  id              String          @id @default(uuid())
+  address         String          @unique
+  chainId         ChainId
+  ensName         String?
+  avatarUrl       String?
+  isVerified      Boolean         @default(false)
+  isArchived      Boolean         @default(false)
+  tags            String[]
+  source          String          @default("SYSTEM")
+  discoveryMethod DiscoveryMethod @default(ON_CHAIN_ANALYSIS)
+  followerCount   Int             @default(0)
+  healthScore     Decimal         @default(100.0) @db.Decimal(5, 2)
+  lastActivityAt  DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  stats           WalletStats?
+  activities      WalletActivity[]
+
+  @@index([address, chainId])
+  @@index([isVerified])
+}
+
+model WalletStats {
+  id                 String        @id @default(uuid())
+  trackedWalletId    String        @unique
+  trackedWallet      TrackedWallet @relation(fields: [trackedWalletId], references: [id], onDelete: Cascade)
+  totalTrades        Int           @default(0)
+  winningTrades      Int           @default(0)
+  losingTrades       Int           @default(0)
+  winRate            Decimal       @default(0.0) @db.Decimal(5, 2)
+  sharpeRatio        Decimal       @default(0.0) @db.Decimal(8, 4)
+  maxDrawdownPercent Decimal       @default(0.0) @db.Decimal(5, 2)
+  totalProfitUsd     Decimal       @default(0.0) @db.Decimal(28, 8)
+  updatedAt          DateTime      @updatedAt
+
+  @@index([trackedWalletId])
+}
+
+model WalletActivity {
+  id              String        @id @default(uuid())
+  trackedWalletId String
+  trackedWallet   TrackedWallet @relation(fields: [trackedWalletId], references: [id], onDelete: Cascade)
+  activityType    String
+  txHash          String
+  summary         String
+  amountUsd       Decimal?      @db.Decimal(28, 8)
+  timestamp       DateTime      @default(now())
+
+  @@index([trackedWalletId])
+  @@index([timestamp])
+}
+
+model Token {
+  id            String    @id @default(uuid())
+  address       String
+  chainId       ChainId
+  symbol        String
+  name          String
+  decimals      Int
+  totalSupply   Decimal?  @db.Decimal(36, 18)
+  fdvUsd        Decimal?  @db.Decimal(28, 8)
+  liquidityUsd  Decimal?  @db.Decimal(28, 8)
+  marketCapUsd  Decimal?  @db.Decimal(28, 8)
+  isVerified    Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  metadata      TokenMetadata?
+  prices        TokenPrice[]
+  priceHistories PriceHistory[]
+
+  @@unique([address, chainId])
+  @@index([address, chainId])
+  @@index([symbol])
+}
+
+
+model TokenPrice {
+  id          String   @id @default(uuid())
+  tokenId     String
+  token       Token    @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  priceUsd    Decimal  @db.Decimal(28, 12)
+  priceNative Decimal  @db.Decimal(36, 18)
+  timestamp   DateTime @default(now())
+
+  @@index([tokenId, timestamp])
+}
+
+model PriceHistory {
+  id        String        @id @default(uuid())
+  tokenId   String
+  token     Token         @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  interval  PriceInterval
+  openUsd   Decimal       @db.Decimal(28, 12)
+  highUsd   Decimal       @db.Decimal(28, 12)
+  lowUsd    Decimal       @db.Decimal(28, 12)
+  closeUsd  Decimal       @db.Decimal(28, 12)
+  volumeUsd Decimal       @db.Decimal(28, 8)
+  timestamp DateTime
+
+  @@unique([tokenId, interval, timestamp])
+  @@index([tokenId, interval, timestamp])
+}
+
+model DEX {
+  id             String          @id @default(uuid())
+  name           String
+  chainId        ChainId
+  factoryAddress String
+  routerAddress  String
+  isSupported    Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  pools          LiquidityPool[]
+
+  @@unique([name, chainId])
+  @@index([chainId])
+}
+
+model LiquidityPool {
+  id             String              @id @default(uuid())
+  dexId          String
+  dex            DEX                 @relation(fields: [dexId], references: [id], onDelete: Cascade)
+  poolAddress    String              @unique
+  token0Address  String
+  token1Address  String
+  feeTierBps     Int                 @default(30)
+  liquidityUsd   Decimal             @default(0.0) @db.Decimal(28, 8)
+  volume24hUsd   Decimal             @default(0.0) @db.Decimal(28, 8)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  positions      LiquidityPosition[]
+
+  @@index([dexId])
+  @@index([poolAddress])
+}
+
+model LiquidityPosition {
+  id             String        @id @default(uuid())
+  poolId         String
+  pool           LiquidityPool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  ownerAddress   String
+  sharePercentage Decimal      @db.Decimal(5, 2)
+  liquidityUsd   Decimal       @db.Decimal(28, 8)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([poolId])
+  @@index([ownerAddress])
+}
+
+model PortfolioSnapshot {
+  id               String    @id @default(uuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  totalValueUsd    Decimal   @db.Decimal(28, 8)
+  cashBalanceUsd   Decimal   @db.Decimal(28, 8)
+  positionValueUsd Decimal   @db.Decimal(28, 8)
+  timestamp        DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  holdings         Holding[]
+
+  @@index([userId])
+  @@index([timestamp])
+}
+
+model Holding {
+  id           String            @id @default(uuid())
+  snapshotId   String
+  snapshot     PortfolioSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  tokenAddress String
+  tokenSymbol  String
+  quantity     Decimal           @db.Decimal(36, 18)
+  valueUsd     Decimal           @db.Decimal(28, 8)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([snapshotId])
+}
+
+model Transaction {
+  id          String          @id @default(uuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chainId     ChainId
+  txHash      String          @unique
+  type        TransactionType
+  status      ExecutionStatus @default(CONFIRMED)
+  feeUsd      Decimal         @default(0.0) @db.Decimal(28, 8)
+  timestamp   DateTime        @default(now())
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([txHash])
+  @@index([type])
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      NotificationType @default(SYSTEM)
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+model Device {
+  id          String     @id @default(uuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fcmToken    String?
+  oneSignalId String?
+  deviceType  DeviceType
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([userId, deviceType])
+  @@index([userId])
+}
+
+model ApiKey {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  keyHash     String    @unique
+  permissions String[]
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([keyHash])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  details   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model Webhook {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url        String
+  secret     String
+  eventTypes String[]
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model MarketSnapshot {
+  id             String   @id @default(uuid())
+  chainId        ChainId
+  totalVolumeUsd Decimal  @db.Decimal(28, 8)
+  activeTraders  Int
+  timestamp      DateTime @default(now())
+
+  @@index([chainId, timestamp])
+}
+
+model MarketEvent {
+  id          String          @id @default(uuid())
+  chainId     ChainId
+  eventType   MarketEventType
+  description String
+  metadata    Json?
+  timestamp   DateTime        @default(now())
+
+  @@index([chainId, timestamp])
+}
+
+model Job {
+  id            String    @id @default(uuid())
+  queueName     String
+  payload       Json
+  status        JobStatus @default(QUEUED)
+  attempts      Int       @default(0)
+  lastError     String?
+  nextRunAt     DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([queueName, status])
+  @@index([nextRunAt])
+}
+
+model Event {
+  id         String   @id @default(uuid())
+  eventType  String
+  payload    Json
+  producer   String
+  createdAt  DateTime @default(now())
+
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model RiskProfile {
+  id                    String   @id @default(uuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  maxDrawdownPercentage Decimal  @default(20.0) @db.Decimal(5, 2)
+  maxDailyLossUsd       Decimal  @default(1000.0) @db.Decimal(28, 8)
+  allowedChains         ChainId[]
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([userId])
+}
