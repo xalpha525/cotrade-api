@@ -142,7 +142,7 @@ export const TraderCharts: React.FC<TraderChartsProps> = () => {
                 <View key={idx} style={styles.mcRow}>
                   <Text style={styles.mcRange}>{item.range}</Text>
                   <View style={styles.mcBarBg}>
-                    <View style={{ width: item.pct, height: '100%', backgroundColor: item.color, borderRadius: 3 }} />
+                    <View style={{ width: item.pct as any, height: '100%', backgroundColor: item.color, borderRadius: 3 }} />
                   </View>
                   <Text style={styles.mcPct}>{item.pct}</Text>
                 </View>

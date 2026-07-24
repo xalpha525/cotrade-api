@@ -14,16 +14,8 @@ export class TradingEngineService {
   private readonly executionEngine: ProductionExecutionEngine;
 
   constructor() {
-    this.solanaProvider = new SolanaProvider(
-      config.HELIUS_API_KEY,
-      config.HELIUS_RPC_URL,
-      config.HELIUS_WS_URL
-    );
-    this.evmProvider = new EvmProvider(
-      'ROBINHOOD_MAINNET',
-      config.ROBINHOOD_RPC_URL,
-      config.ROBINHOOD_WS_URL
-    );
+    this.solanaProvider = new SolanaProvider();
+    this.evmProvider = new EvmProvider('ROBINHOOD_MAINNET');
     this.eventBus = new InMemoryEventBus();
     this.signalProcessor = new TradeSignalProcessor();
     this.executionEngine = new ProductionExecutionEngine();

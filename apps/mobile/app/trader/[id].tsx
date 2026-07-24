@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Dimensions } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTraderDetail, useTraderTrades, useTraderHoldings, useTraderFollowers } from '@/hooks/useApi';
@@ -24,6 +25,8 @@ export default function TraderDetailScreen() {
     );
   }
 
+  const formatAddress = (addr: string) => (addr ? `${addr.slice(0, 6)}...${addr.slice(-6)}` : '');
+  const formatUsd = (val?: number) => `$${(val ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const formatMc = (val?: number) => (val && !isNaN(val) ? `$${(val / 1000000).toFixed(2)}M` : '$0.00M');
   const formatHoldTime = (sec?: number) => {
     if (!sec || isNaN(sec)) return '0h 0m';
@@ -188,7 +191,7 @@ export default function TraderDetailScreen() {
           </View>
         )}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 

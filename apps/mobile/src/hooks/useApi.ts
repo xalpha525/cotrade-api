@@ -126,6 +126,19 @@ export const useTraderFollowers = (id: string) => {
   });
 };
 
+export const useTrades = () => {
+  return useQuery({
+    queryKey: QueryKeys.trades,
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/api/v1/trades`, {
+        headers: await getAuthHeaders(),
+      });
+      const json = await res.json();
+      return json.data ?? [];
+    },
+  });
+};
+
 export const usePortfolio = () => {
   return useQuery({
     queryKey: QueryKeys.portfolio,
