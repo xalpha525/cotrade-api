@@ -24,11 +24,16 @@ export default function TraderDetailScreen() {
     );
   }
 
-  const formatAddress = (addr: string) => (addr ? `${addr.slice(0, 6)}...${addr.slice(-6)}` : '');
-  const formatUsd = (val?: number) => `$${(val ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatMc = (val?: number) => (val && !isNaN(val) ? `$${(val / 1000000).toFixed(2)}M` : '$0.00M');
+  const formatHoldTime = (sec?: number) => {
+    if (!sec || isNaN(sec)) return '0h 0m';
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    return `${h}h ${m}m`;
+  };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <Stack.Screen
         options={{
           headerTitle: trader.displayName,
@@ -45,20 +50,20 @@ export default function TraderDetailScreen() {
             <Text style={styles.avatarText}>{(trader.displayName || 'T').replace('@', '').charAt(0).toUpperCase()}</Text>
           </View>
           <View style={styles.headerInfo}>
-            <Text style={styles.displayName}>{trader.displayName}</Text>
-            <Text style={styles.walletAddr}>{formatAddress(trader.walletAddress)}</Text>
-            <Text style={styles.bioText}>{trader.bio}</Text>
+            <Text style={styles.displayName} numberOfLines={1}>{trader.displayName}</Text>
+            <Text style={styles.walletAddr} numberOfLines={1}>{formatAddress(trader.walletAddress)}</Text>
+            {!!trader.bio && <Text style={styles.bioText} numberOfLines={2}>{trader.bio}</Text>}
           </View>
         </View>
 
         <View style={styles.headerStatsGrid}>
           <View style={styles.headerStatBox}>
             <Text style={styles.statLabel}>Win Rate</Text>
-            <Text style={[styles.statValue, { color: '#10B981' }]}>{trader.winRate}%</Text>
+            <Text style={[styles.statValue, { color: '#10B981' }]}>{trader.winRate ?? 0}%</Text>
           </View>
           <View style={styles.headerStatBox}>
             <Text style={styles.statLabel}>Avg Win</Text>
-            <Text style={[styles.statValue, { color: '#00F0FF' }]}>{trader.averageWinMultiple}</Text>
+            <Text style={[styles.statValue, { color: '#00F0FF' }]}>{trader.averageWinMultiple ?? '0x'}</Text>
           </View>
           <View style={styles.headerStatBox}>
             <Text style={styles.statLabel}>Assets Copied</Text>
@@ -66,7 +71,7 @@ export default function TraderDetailScreen() {
           </View>
           <View style={styles.headerStatBox}>
             <Text style={styles.statLabel}>Followers</Text>
-            <Text style={styles.statValue}>{trader.followerCount}</Text>
+            <Text style={styles.statValue}>{trader.followerCount ?? 0}</Text>
           </View>
         </View>
 
@@ -79,46 +84,48 @@ export default function TraderDetailScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Tabs Row */}
-      <View style={styles.tabsRow}>
-        {(['OVERVIEW', 'TRADES', 'PERFORMANCE', 'HOLDINGS', 'FOLLOWERS', 'CHARTS'] as const).map((t) => (
-          <TouchableOpacity
-            key={t}
-            style={[styles.tabItem, activeTab === t && styles.tabItemActive]}
-            onPress={() => setActiveTab(t)}
-          >
-            <Text style={[styles.tabText, activeTab === t && styles.tabTextActive]}>
-              {t.charAt(0) + t.slice(1).toLowerCase()}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      {/* Horizontally Scrollable Tabs Row */}
+      <View style={styles.tabsWrapper}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsRowContainer}>
+          {(['OVERVIEW', 'TRADES', 'PERFORMANCE', 'HOLDINGS', 'FOLLOWERS', 'CHARTS'] as const).map((t) => (
+            <TouchableOpacity
+              key={t}
+              style={[styles.tabItem, activeTab === t && styles.tabItemActive]}
+              onPress={() => setActiveTab(t)}
+            >
+              <Text style={[styles.tabText, activeTab === t && styles.tabTextActive]}>
+                {t.charAt(0) + t.slice(1).toLowerCase()}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </View>
 
       {/* Tab Content */}
-      <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: 30 }}>
+      <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: 40 }}>
         {activeTab === 'OVERVIEW' && (
           <View style={styles.tabSection}>
             <Text style={styles.sectionHeader}>Overview Metrics</Text>
             <View style={styles.infoCard}>
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Total Trades:</Text>
-                <Text style={styles.infoValue}>{trader.totalTrades} ({trader.winningTrades}W / {trader.losingTrades}L)</Text>
+                <Text style={styles.infoValue}>{trader.totalTrades ?? 0} ({trader.winningTrades ?? 0}W / {trader.losingTrades ?? 0}L)</Text>
               </View>
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Average Entry MC:</Text>
-                <Text style={styles.infoValue}>${(trader.averageEntryMcUsd / 1000000).toFixed(2)}M</Text>
+                <Text style={styles.infoValue}>{formatMc(trader.averageEntryMcUsd)}</Text>
               </View>
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Average Exit MC:</Text>
-                <Text style={styles.infoValue}>${(trader.averageExitMcUsd / 1000000).toFixed(2)}M</Text>
+                <Text style={styles.infoValue}>{formatMc(trader.averageExitMcUsd)}</Text>
               </View>
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Average Hold Time:</Text>
-                <Text style={styles.infoValue}>{Math.floor(trader.averageHoldTimeSec / 3600)}h {Math.floor((trader.averageHoldTimeSec % 3600) / 60)}m</Text>
+                <Text style={styles.infoValue}>{formatHoldTime(trader.averageHoldTimeSec)}</Text>
               </View>
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Max Drawdown:</Text>
-                <Text style={[styles.infoValue, { color: '#10B981' }]}>-{trader.maxDrawdownPercent}%</Text>
+                <Text style={[styles.infoValue, { color: '#10B981' }]}>-{trader.maxDrawdownPercent ?? 0}%</Text>
               </View>
             </View>
           </View>
@@ -281,16 +288,18 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 14,
   },
-  tabsRow: {
-    flexDirection: 'row',
+  tabsWrapper: {
     backgroundColor: '#12121A',
-    paddingHorizontal: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#222232',
   },
+  tabsRowContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 8,
+  },
   tabItem: {
     paddingVertical: 12,
-    paddingHorizontal: 10,
+    paddingHorizontal: 14,
   },
   tabItemActive: {
     borderBottomWidth: 2,
@@ -298,7 +307,7 @@ const styles = StyleSheet.create({
   },
   tabText: {
     color: '#808095',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
   },
   tabTextActive: {

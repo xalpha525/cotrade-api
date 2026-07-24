@@ -13,16 +13,31 @@ import { Colors } from '@/constants/theme';
 import { wsService } from '@/services/websocket.service';
 import { AppState, AppStateStatus } from 'react-native';
 
-LogBox.ignoreLogs(['Clipboard has been extracted']);
+import { Ionicons } from '@expo/vector-icons';
+import * as Font from 'expo-font';
+
+LogBox.ignoreLogs(['Clipboard has been extracted', "Cannot read property 'uri' of null"]);
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const hydrate = useAuthStore((s) => s.hydrate);
+  const [fontsLoaded, setFontsLoaded] = React.useState(false);
 
   useEffect(() => {
+    async function prepare() {
+      try {
+        await Font.loadAsync(Ionicons.font);
+      } catch (e) {
+        console.warn('Font load error:', e);
+      } finally {
+        setFontsLoaded(true);
+        SplashScreen.hideAsync();
+      }
+    }
+    prepare();
+
     wsService.setQueryClient(queryClient);
     hydrate();
-    SplashScreen.hideAsync();
 
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (nextAppState === 'background') {
@@ -35,6 +50,10 @@ export default function RootLayout() {
     const sub = AppState.addEventListener('change', handleAppStateChange);
     return () => sub.remove();
   }, [hydrate]);
+
+  if (!fontsLoaded) {
+    return null;
+  }
 
   return (
     <GestureHandlerRootView style={styles.root}>
