@@ -140,12 +140,35 @@ traderRoutes.post('/', async (c) => {
       },
     });
 
+    // 1b. Ensure a Wallet record exists for DB foreign key relations
+    let sysUser = await prisma.user.findFirst();
+    if (!sysUser) {
+      sysUser = await prisma.user.create({
+        data: {
+          privyId: `privy_trader_${Date.now()}`,
+          email: `trader_${Date.now()}@copytrading.internal`,
+          role: 'TRADER',
+        },
+      });
+    }
+
+    const wallet = await prisma.wallet.upsert({
+      where: { userId_address_chainId: { userId: sysUser.id, address: addr, chainId } },
+      create: {
+        userId: sysUser.id,
+        address: addr,
+        chainId,
+        isPrimary: false,
+      },
+      update: {},
+    });
+
     // 2. Enqueue indexing job for historical tx collection & stats calculation
     try {
       await walletMonitorQueue.enqueue({
         jobId: `trader-index-${trader.id}-${Date.now()}`,
         timestamp: Date.now(),
-        walletId: trader.id,
+        walletId: wallet.id,
         address: trader.walletAddress,
         chainId: trader.chainId,
         ownerType: 'MASTER_TRADER',

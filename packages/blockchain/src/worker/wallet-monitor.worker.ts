@@ -21,6 +21,42 @@ export class WalletMonitoringWorker {
     walletMonitorQueue.process(async (payload: WalletMonitorJobPayload) => {
       await this.handleWalletJob(payload);
     });
+
+    // Auto-subscribe all active traders from DB on startup for real-time live monitoring
+    this._subscribeAllActiveTradersOnStartup().catch((err) => {
+      logger.error({ err: err instanceof Error ? err.message : String(err) }, 'WalletMonitoringWorker: Failed to subscribe active traders on startup');
+    });
+  }
+
+  private async _subscribeAllActiveTradersOnStartup(): Promise<void> {
+    const activeTraders = await prisma.trader.findMany({
+      where: { status: 'ACTIVE', deletedAt: null },
+    });
+
+    logger.info({ count: activeTraders.length }, 'WalletMonitoringWorker: Auto-subscribing active traders to Helius WebSockets');
+
+    for (const trader of activeTraders) {
+      try {
+        const provider = ProviderFactory.getProvider(trader.chainId);
+        await provider.subscribeWallet(trader.walletAddress, async (tx) => {
+          logger.info({ txHash: tx.txHash, wallet: tx.walletAddress }, 'Worker received live on-chain transaction');
+          try {
+            await this.transactionPipeline.processIncomingTransaction(tx);
+          } catch (err) {
+            logger.error({ err: err instanceof Error ? err.message : String(err) }, 'Error in transaction pipeline');
+          }
+
+          try {
+            await this.copyExecutionEngine.processDetectedTraderTrade(tx);
+          } catch (err) {
+            logger.error({ err: err instanceof Error ? err.message : String(err) }, 'Error in copy execution engine');
+          }
+        });
+        logger.info({ wallet: trader.walletAddress }, 'WalletMonitoringWorker: Successfully subscribed trader to live Helius WebSocket');
+      } catch (err) {
+        logger.warn({ wallet: trader.walletAddress, err: err instanceof Error ? err.message : String(err) }, 'WalletMonitoringWorker: Failed to subscribe trader on startup');
+      }
+    }
   }
 
   async handleWalletJob(payload: WalletMonitorJobPayload): Promise<void> {
@@ -30,75 +66,82 @@ export class WalletMonitoringWorker {
       const provider = ProviderFactory.getProvider(payload.chainId);
 
       if (payload.action === 'SUBSCRIBE' || payload.action === 'REFRESH_BALANCE') {
-        // 1. Fetch live native balance & token balances from blockchain
-        let nativeBalance = '0';
-        let balanceUsd = 0;
+        // 1. Resolve or create valid Wallet record ID to avoid Foreign Key errors
+        let targetWalletId = payload.walletId;
+        const existingWallet = await prisma.wallet.findFirst({
+          where: { address: payload.address },
+        });
 
+        if (existingWallet) {
+          targetWalletId = existingWallet.id;
+        } else {
+          let user = await prisma.user.findFirst();
+          if (!user) {
+            user = await prisma.user.create({
+              data: {
+                privyId: `privy_sys_${Date.now()}`,
+                email: `system_${Date.now()}@copytrading.internal`,
+                role: 'FOLLOWER',
+              },
+            });
+          }
+          const createdWallet = await prisma.wallet.create({
+            data: {
+              userId: user.id,
+              address: payload.address,
+              chainId: payload.chainId,
+              isPrimary: false,
+            },
+          });
+          targetWalletId = createdWallet.id;
+        }
+
+        // 2. Fetch live balances (wrapped safely)
         try {
-          nativeBalance = await provider.getNativeBalance(payload.address);
-          
+          const nativeBalance = await provider.getNativeBalance(payload.address);
           const nativeMint = payload.chainId === 'SOLANA_MAINNET' ? NATIVE_SOL : NATIVE_ETH;
           const nativePriceUsd = await this.priceService.getPrice(nativeMint, payload.chainId);
 
-          // Calculate native balance USD
           const nativeDecimals = payload.chainId === 'SOLANA_MAINNET' ? 9 : 18;
           const nativeUiAmount = Number(BigInt(nativeBalance)) / Math.pow(10, nativeDecimals);
           let totalUsd = nativeUiAmount * nativePriceUsd;
 
-          // Fetch token balances & calculate total token value in USD
           const tokenBalances = await provider.getTokenBalances(payload.address);
           for (const tb of tokenBalances) {
             const tokenPrice = await this.priceService.getPrice(tb.mintAddress, payload.chainId);
             totalUsd += tb.uiAmount * tokenPrice;
           }
 
-          balanceUsd = Math.round(totalUsd * 100) / 100;
+          const balanceUsd = Math.round(totalUsd * 100) / 100;
 
-          logger.info(
-            { address: payload.address, nativeBalance, balanceUsd, tokenCount: tokenBalances.length },
-            'WalletMonitoringWorker: Live balance fetched successfully'
-          );
-        } catch (e) {
-          logger.warn(
-            { address: payload.address, err: e instanceof Error ? e.message : String(e) },
-            'WalletMonitoringWorker: RPC balance fetch failed — retaining existing DB balance'
-          );
-          // Retrieve last known balance from DB if RPC fails
-          const existing = await prisma.walletBalance.findUnique({ where: { walletId: payload.walletId } });
-          if (existing) {
-            nativeBalance = existing.nativeBalance;
-            balanceUsd = existing.balanceUsd;
-          }
-        }
+          await prisma.walletBalance.upsert({
+            where: { walletId: targetWalletId },
+            create: {
+              walletId: targetWalletId,
+              nativeBalance,
+              balanceUsd,
+            },
+            update: {
+              nativeBalance,
+              balanceUsd,
+            },
+          });
 
-        // 2. Persist real balance in Database
-        await prisma.walletBalance.upsert({
-          where: { walletId: payload.walletId },
-          create: {
-            walletId: payload.walletId,
-            nativeBalance,
-            balanceUsd,
-          },
-          update: {
-            nativeBalance,
-            balanceUsd,
-          },
-        });
-
-        // Publish domain event
-        try {
           await eventBus.publish({
             eventId: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             eventType: 'WALLET_BALANCE_UPDATED',
             timestamp: Date.now(),
-            walletId: payload.walletId,
+            walletId: targetWalletId,
             address: payload.address,
             chainId: payload.chainId,
             balanceUsd,
             tokens: [],
-          });
-        } catch (evtErr) {
-          logger.warn({ walletId: payload.walletId, err: evtErr }, 'Failed to publish WALLET_BALANCE_UPDATED event');
+          }).catch(() => {});
+        } catch (e) {
+          logger.warn(
+            { address: payload.address, err: e instanceof Error ? e.message : String(e) },
+            'WalletMonitoringWorker: RPC balance fetch failed — proceeding to live subscription'
+          );
         }
 
         // 3. Register real WebSocket subscription with provider
@@ -118,38 +161,9 @@ export class WalletMonitoringWorker {
           } catch (err) {
             logger.error({ err: err instanceof Error ? err.message : String(err) }, 'Error in copy execution engine');
           }
-
-          // Trigger balance refresh after transaction
-          try {
-            const updatedNative = await provider.getNativeBalance(payload.address);
-            const nativeMint = payload.chainId === 'SOLANA_MAINNET' ? NATIVE_SOL : NATIVE_ETH;
-            const priceUsd = await this.priceService.getPrice(nativeMint, payload.chainId);
-            const nativeDecimals = payload.chainId === 'SOLANA_MAINNET' ? 9 : 18;
-            const updatedUi = Number(BigInt(updatedNative)) / Math.pow(10, nativeDecimals);
-            const updatedUsd = Math.round(updatedUi * priceUsd * 100) / 100;
-
-            await prisma.walletBalance.upsert({
-              where: { walletId: payload.walletId },
-              create: { walletId: payload.walletId, nativeBalance: updatedNative, balanceUsd: updatedUsd },
-              update: { nativeBalance: updatedNative, balanceUsd: updatedUsd },
-            });
-
-            // Publish domain event after live transaction balance update
-            await eventBus.publish({
-              eventId: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-              eventType: 'WALLET_BALANCE_UPDATED',
-              timestamp: Date.now(),
-              walletId: payload.walletId,
-              address: payload.address,
-              chainId: payload.chainId,
-              balanceUsd: updatedUsd,
-              tokens: [],
-            });
-            logger.info({ walletId: payload.walletId, balanceUsd: updatedUsd }, 'Published WALLET_BALANCE_UPDATED after on-chain transaction');
-          } catch (err) {
-            logger.warn({ walletId: payload.walletId }, 'Failed to refresh balance after transaction');
-          }
         });
+
+        logger.info({ address: payload.address }, 'WalletMonitoringWorker: Live subscription active');
       } else if (payload.action === 'UNSUBSCRIBE') {
         await provider.unsubscribeWallet(payload.address);
       }
