@@ -4,12 +4,5 @@
     "outDir": "./dist",
     "rootDir": "./src"
   },
-  "include": ["src/**/*"],
-  "references": [
-    { "path": "../db" },
-    { "path": "../events" },
-    { "path": "../logger" },
-    { "path": "../queue" },
-    { "path": "../utils" }
-  ]
+  "include": ["src/**/*"]
 }
