@@ -1,26 +1,28 @@
 import type { ChainId } from '@copytrading/db';
 import type { DecodedInstruction, IDexDecoder } from './interfaces.js';
+import { extractSolanaSwapData } from './solana-swap-extractor.js';
 
 export class RaydiumDecoder implements IDexDecoder {
   readonly dexId = 'RAYDIUM';
   readonly supportedChains: ChainId[] = ['SOLANA_MAINNET'];
 
   canDecode(programId: string): boolean {
-    return programId === '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8' || programId === 'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK';
+    return (
+      programId === '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8' ||
+      programId === 'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK' ||
+      programId.includes('raydium') ||
+      programId.includes('Raydium')
+    );
   }
 
-  decode(rawPayload: Record<string, unknown>): DecodedInstruction {
-    const tokenIn = (rawPayload['tokenIn'] as string) || (rawPayload['mintIn'] as string);
-    const tokenOut = (rawPayload['tokenOut'] as string) || (rawPayload['mintOut'] as string);
-    const amountIn = (rawPayload['amountIn'] as string) || (rawPayload['inAmount'] as string);
-    const amountOut = (rawPayload['amountOut'] as string) || (rawPayload['outAmount'] as string);
-    const pool = rawPayload['pool'] as string | undefined;
+  decode(rawPayload: Record<string, unknown>, walletAddress?: string): DecodedInstruction {
+    const swap = extractSolanaSwapData(rawPayload, walletAddress);
 
-    if (!tokenIn || !tokenOut || !amountIn || !amountOut) {
+    if (!swap) {
       return {
         actionType: 'UNKNOWN',
         dexId: this.dexId,
-        rawPayload
+        rawPayload,
       };
     }
 
@@ -29,13 +31,12 @@ export class RaydiumDecoder implements IDexDecoder {
       dexId: this.dexId,
       swapData: {
         dexId: this.dexId,
-        ...(pool ? { poolAddress: pool } : {}),
-        tokenInAddress: tokenIn,
-        tokenOutAddress: tokenOut,
-        amountIn,
-        amountOut
+        tokenInAddress: swap.tokenInAddress,
+        tokenOutAddress: swap.tokenOutAddress,
+        amountIn: swap.amountIn,
+        amountOut: swap.amountOut,
       },
-      rawPayload
+      rawPayload,
     };
   }
 }

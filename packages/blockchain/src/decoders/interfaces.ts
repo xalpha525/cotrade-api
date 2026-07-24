@@ -23,5 +23,5 @@ export interface IDexDecoder {
   readonly dexId: string;
   readonly supportedChains: ChainId[];
   canDecode(programIdOrContract: string, rawPayload: Record<string, unknown>): boolean;
-  decode(rawPayload: Record<string, unknown>): DecodedInstruction;
+  decode(rawPayload: Record<string, unknown>, walletAddress?: string): DecodedInstruction;
 }

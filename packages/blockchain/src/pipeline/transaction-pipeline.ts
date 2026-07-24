@@ -37,7 +37,7 @@ export class TransactionPipeline {
 
   async processIncomingTransaction(tx: RawTransactionEvent): Promise<void> {
     const programOrContract = tx.programId ?? 'UNKNOWN';
-    const decoded = this.decoderRegistry.decodeTransaction(programOrContract, tx.rawPayload);
+    const decoded = this.decoderRegistry.decodeTransaction(programOrContract, tx.rawPayload, tx.walletAddress);
 
     logger.info(
       { txHash: tx.txHash, actionType: decoded.actionType, dexId: decoded.dexId },

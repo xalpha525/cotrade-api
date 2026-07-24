@@ -76,7 +76,7 @@ export interface ISignalRepository {
   createSignal(data: {
     chainId: ChainId;
     txHash: string;
-    blockNumber: bigint;
+    blockNumber?: bigint;
     walletAddress: string;
     tokenInAddress: string;
     tokenOutAddress: string;

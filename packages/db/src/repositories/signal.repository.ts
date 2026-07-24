@@ -21,7 +21,7 @@ export class SignalRepository implements ISignalRepository {
   async createSignal(data: {
     chainId: ChainId;
     txHash: string;
-    blockNumber: bigint;
+    blockNumber?: bigint;
     walletAddress: string;
     tokenInAddress: string;
     tokenOutAddress: string;
@@ -33,7 +33,7 @@ export class SignalRepository implements ISignalRepository {
       data: {
         chainId: data.chainId,
         txHash: data.txHash,
-        blockNumber: data.blockNumber,
+        blockNumber: data.blockNumber ?? BigInt(0),
         walletAddress: data.walletAddress,
         tokenInAddress: data.tokenInAddress,
         tokenOutAddress: data.tokenOutAddress,

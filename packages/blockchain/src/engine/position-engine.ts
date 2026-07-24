@@ -30,11 +30,12 @@ export class PositionEngine {
   async processTrade(trade: DecodedTradePayload): Promise<ProcessedPositionResult> {
     logger.info({ walletId: trade.walletId, token: trade.tokenSymbol, side: trade.side }, 'Processing trade in FIFO Position Engine');
 
+    const userId = trade.userId ?? 'system_user';
     const existingPosition = await prisma.position.findFirst({
       where: {
-        walletId: trade.walletId,
+        userId,
+        chainId: trade.chainId,
         tokenAddress: trade.tokenAddress,
-        status: { in: ['OPEN', 'PARTIALLY_CLOSED'] },
       },
       include: { lots: true },
     });
@@ -116,7 +117,9 @@ export class PositionEngine {
       let realizedPnL = 0;
       let totalCostBasis = 0;
 
-      const sortedLots = existingPosition.lots.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      const sortedLots = (existingPosition.lots as Array<{ id: string; createdAt: Date; remainingAmount: any; entryPriceUsd: any }>).sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
 
       for (const lot of sortedLots) {
         if (remainingSellQty <= 0) break;
